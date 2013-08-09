@@ -179,6 +179,7 @@ pub fn check_expr(v: &mut CheckCrateVisitor,
           ExprParen(e) => { check_expr(v, sess, def_map, method_map,
                                         tcx, e, is_const); }
           ExprVstore(_, ExprVstoreSlice) |
+          ExprVstore(_, ExprVstoreUniq) |
           ExprVec(_, MutImmutable) |
           ExprAddrOf(MutImmutable, _) |
           ExprField(..) |
@@ -192,7 +193,6 @@ pub fn check_expr(v: &mut CheckCrateVisitor,
                     "borrowed pointers in constants may only refer to \
                      immutable values");
           },
-          ExprVstore(_, ExprVstoreUniq) |
           ExprVstore(_, ExprVstoreBox) |
           ExprVstore(_, ExprVstoreMutBox) => {
               sess.span_err(e.span, "cannot allocate vectors in constant expressions")

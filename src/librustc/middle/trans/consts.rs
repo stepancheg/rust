@@ -569,6 +569,21 @@ fn const_expr_unadjusted(cx: @mut CrateContext,
             };
             (v, true)
           }
+          ast::ExprVstore(sub, ast::ExprVstoreUniq) => {
+            match sub.node {
+              ast::ExprLit(_) => {
+                fail!("aaa");
+              }
+              ast::ExprVec(ref es, ast::MutImmutable) => {
+                //let (cv0, sz, llunitty) = const_vec(cx, e, *es);
+                let (cv0, _, _) = const_vec(cx, e, *es);
+                let sz = C_uint(cx, es.len());
+                let cv = C_struct([sz, sz, cv0], false);
+                (const_addr_of(cx, cv), true)
+              }
+              _ => cx.sess.span_bug(e.span, "bad const-uniq expr")
+            }
+          }
           ast::ExprPath(ref pth) => {
             // Assert that there are no type parameters in this path.
             assert!(pth.segments.iter().all(|seg| seg.types.is_empty()));
