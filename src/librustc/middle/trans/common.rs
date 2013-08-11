@@ -277,9 +277,13 @@ pub fn warn_not_to_commit(ccx: &mut CrateContext, msg: &str) {
 // Heap selectors. Indicate which heap something should go on.
 #[deriving(Eq)]
 pub enum heap {
+    // managed objects, like @int or @[~[int]]
     heap_managed,
+    // unique values that contain GC-ed pointers, like ~[@int]
     heap_managed_unique,
+    // simple unique values, like ~int, ~[int] or ~[~[int]]
     heap_exchange,
+    // for unique closures that don't contains GC-ed pointers
     heap_exchange_closure
 }
 
