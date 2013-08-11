@@ -13,6 +13,7 @@ use back::abi;
 use back::link::{mangle_internal_name_by_path_and_seq};
 use lib::llvm::ValueRef;
 use middle::moves;
+use middle::lang_items::{FreeFnLangItem, ExchangeFreeFnLangItem};
 use middle::trans::base::*;
 use middle::trans::build::*;
 use middle::trans::common::*;
@@ -550,8 +551,8 @@ pub fn make_opaque_cbox_free_glue(
 
         // Free the ty descr (if necc) and the box itself
         match sigil {
-            ast::ManagedSigil => glue::trans_free(bcx, cbox),
-            ast::OwnedSigil => glue::trans_exchange_free(bcx, cbox),
+            ast::ManagedSigil => glue::trans_free(bcx, cbox, FreeFnLangItem),
+            ast::OwnedSigil => glue::trans_free(bcx, cbox, ExchangeFreeFnLangItem),
             ast::BorrowedSigil => {
                 bcx.sess().bug("impossible")
             }

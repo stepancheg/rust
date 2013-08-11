@@ -80,6 +80,8 @@ use vec::{OwnedVector, MutableVector};
 /// The global (exchange) heap.
 pub mod global_heap;
 
+pub mod vec;
+
 /// Implementations of language-critical runtime features like @.
 pub mod task;
 

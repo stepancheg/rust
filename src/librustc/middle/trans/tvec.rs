@@ -12,7 +12,7 @@
 use back::abi;
 use lib;
 use lib::llvm::{llvm, ValueRef};
-use middle::lang_items::StrDupUniqFnLangItem;
+use middle::lang_items::{StrDupUniqFnLangItem, VecExchangeMallocFnLangItem};
 use middle::trans::base;
 use middle::trans::base::*;
 use middle::trans::build::*;
@@ -84,8 +84,35 @@ pub fn pointer_add(bcx: @mut Block, ptr: ValueRef, bytes: ValueRef) -> ValueRef 
     return PointerCast(bcx, InBoundsGEP(bcx, bptr, [bytes]), old_ty);
 }
 
-pub fn alloc_raw(bcx: @mut Block, unit_ty: ty::t,
-                 fill: ValueRef, alloc: ValueRef, heap: heap) -> Result {
+fn alloc_raw_heap(bcx: @mut Block, unit_ty: ty::t, elts: uint) -> Result {
+    let ccx = bcx.ccx();
+    let llunitty = type_of::type_of(ccx, unit_ty);
+    let unit_sz = nonzero_llsize_of(ccx, llunitty);
+    let ll_elts = C_uint(ccx, elts);
+
+    let vecbodyty = ty::mk_mut_unboxed_vec(bcx.tcx(), unit_ty);
+    let ll_vecbody_ty = type_of::type_of(ccx, vecbodyty);
+    let alloc_fn = langcall(bcx, None /* XXX: span */, "",
+                            VecExchangeMallocFnLangItem);
+    let r = callee::trans_lang_call(
+        bcx,
+        alloc_fn,
+        [ll_elts, unit_sz],
+        None);
+    return rslt(r.bcx, PointerCast(r.bcx, r.val, ll_vecbody_ty.ptr_to()));
+}
+
+fn alloc_vec(bcx: @mut Block, unit_ty: ty::t, elts: uint, heap: heap) -> Result {
+    let _icx = push_ctxt("tvec::alloc_uniq");
+
+    let ccx = bcx.ccx();
+    let llunitty = type_of::type_of(ccx, unit_ty);
+    let unit_sz = nonzero_llsize_of(ccx, llunitty);
+    let ll_elts = C_uint(ccx, elts);
+    let fill = Mul(bcx, ll_elts, unit_sz);
+    let alloc = if elts < 4u { Mul(bcx, C_int(ccx, 4), unit_sz) }
+                else { fill };
+
     let _icx = push_ctxt("tvec::alloc_uniq");
     let ccx = bcx.ccx();
 
@@ -93,10 +120,7 @@ pub fn alloc_raw(bcx: @mut Block, unit_ty: ty::t,
     let vecsize = Add(bcx, alloc, llsize_of(ccx, ccx.opaque_vec_type));
 
     if heap == heap_exchange {
-        let Result { bcx: bcx, val: val } = malloc_raw_dyn(bcx, vecbodyty, heap_exchange, vecsize);
-        Store(bcx, fill, GEPi(bcx, val, [0u, abi::vec_elt_fill]));
-        Store(bcx, alloc, GEPi(bcx, val, [0u, abi::vec_elt_alloc]));
-        return rslt(bcx, val);
+        return alloc_raw_heap(bcx, unit_ty, elts);
     } else {
         let base::MallocResult {bcx, box: bx, body} =
             base::malloc_general_dyn(bcx, vecbodyty, heap, vecsize);
@@ -105,24 +129,6 @@ pub fn alloc_raw(bcx: @mut Block, unit_ty: ty::t,
         base::maybe_set_managed_unique_rc(bcx, bx, heap);
         return rslt(bcx, bx);
     }
-}
-
-pub fn alloc_vec(bcx: @mut Block,
-                 unit_ty: ty::t,
-                 elts: uint,
-                 heap: heap)
-              -> Result {
-    let _icx = push_ctxt("tvec::alloc_uniq");
-    let ccx = bcx.ccx();
-    let llunitty = type_of::type_of(ccx, unit_ty);
-    let unit_sz = nonzero_llsize_of(ccx, llunitty);
-
-    let fill = Mul(bcx, C_uint(ccx, elts), unit_sz);
-    let alloc = if elts < 4u { Mul(bcx, C_int(ccx, 4), unit_sz) }
-                else { fill };
-    let Result {bcx: bcx, val: vptr} =
-        alloc_raw(bcx, unit_ty, fill, alloc, heap);
-    return rslt(bcx, vptr);
 }
 
 pub fn make_drop_glue_unboxed(bcx: @mut Block, vptr: ValueRef, vec_ty: ty::t) ->

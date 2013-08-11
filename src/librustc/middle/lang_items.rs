@@ -79,16 +79,19 @@ pub enum LangItem {
     TyDescStructLangItem,              // 38
     TyVisitorTraitLangItem,            // 39
     OpaqueStructLangItem,              // 40
+
+    VecExchangeMallocFnLangItem,       // 41
+    VecExchangeFreeFnLangItem,         // 42
 }
 
 pub struct LanguageItems {
-    items: [Option<def_id>, ..41]
+    items: [Option<def_id>, ..43]
 }
 
 impl LanguageItems {
     pub fn new() -> LanguageItems {
         LanguageItems {
-            items: [ None, ..41 ]
+            items: [ None, ..43 ]
         }
     }
 
@@ -144,6 +147,9 @@ impl LanguageItems {
             38 => "ty_desc",
             39 => "ty_visitor",
             40 => "opaque",
+
+            41 => "vec_exchange_malloc",
+            42 => "vec_exchange_free",
 
             _ => "???"
         }
@@ -286,6 +292,12 @@ impl LanguageItems {
     pub fn opaque(&self) -> Option<def_id> {
         self.items[OpaqueStructLangItem as uint]
     }
+    pub fn vec_exchange_malloc(&self) -> Option<def_id> {
+        self.items[VecExchangeMallocFnLangItem as uint]
+    }
+    pub fn vec_exchange_free(&self) -> Option<def_id> {
+        self.items[VecExchangeFreeFnLangItem as uint]
+    }
 }
 
 struct LanguageItemCollector<'self> {
@@ -349,6 +361,8 @@ impl<'self> LanguageItemCollector<'self> {
         item_refs.insert(@"ty_desc", TyDescStructLangItem as uint);
         item_refs.insert(@"ty_visitor", TyVisitorTraitLangItem as uint);
         item_refs.insert(@"opaque", OpaqueStructLangItem as uint);
+        item_refs.insert(@"vec_exchange_malloc", VecExchangeMallocFnLangItem as uint);
+        item_refs.insert(@"vec_exchange_free", VecExchangeFreeFnLangItem as uint);
 
         LanguageItemCollector {
             crate: crate,

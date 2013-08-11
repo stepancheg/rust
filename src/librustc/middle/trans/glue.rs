@@ -18,7 +18,7 @@ use back::link::*;
 use driver::session;
 use lib;
 use lib::llvm::{llvm, ValueRef, True};
-use middle::lang_items::{FreeFnLangItem, ExchangeFreeFnLangItem};
+use middle::lang_items::{LangItem, FreeFnLangItem, ExchangeFreeFnLangItem};
 use middle::trans::adt;
 use middle::trans::base::*;
 use middle::trans::callee;
@@ -41,18 +41,10 @@ use std::c_str::ToCStr;
 use std::libc::c_uint;
 use syntax::ast;
 
-pub fn trans_free(cx: @mut Block, v: ValueRef) -> @mut Block {
+pub fn trans_free(cx: @mut Block, v: ValueRef, free: LangItem) -> @mut Block {
     let _icx = push_ctxt("trans_free");
     callee::trans_lang_call(cx,
-        langcall(cx, None, "", FreeFnLangItem),
-        [PointerCast(cx, v, Type::i8p())],
-        Some(expr::Ignore)).bcx
-}
-
-pub fn trans_exchange_free(cx: @mut Block, v: ValueRef) -> @mut Block {
-    let _icx = push_ctxt("trans_exchange_free");
-    callee::trans_lang_call(cx,
-        langcall(cx, None, "", ExchangeFreeFnLangItem),
+        langcall(cx, None, "", free),
         [PointerCast(cx, v, Type::i8p())],
         Some(expr::Ignore)).bcx
 }
@@ -172,10 +164,13 @@ pub fn simplified_glue_type(tcx: ty::ctxt, field: uint, t: ty::t) -> ty::t {
           if ! ty::type_needs_drop(tcx, mt.ty) =>
           return ty::mk_imm_box(tcx, ty::mk_u32()),
 
-          ty::ty_uniq(mt) |
-          ty::ty_evec(mt, ty::vstore_uniq)
+          ty::ty_uniq(mt)
           if ! ty::type_needs_drop(tcx, mt.ty) =>
           return ty::mk_imm_uniq(tcx, ty::mk_u32()),
+
+          ty::ty_evec(mt, ty::vstore_uniq)
+          if ! ty::type_needs_drop(tcx, mt.ty) =>
+          return ty::mk_evec(tcx, ty::mt { ty: ty::mk_u32(), mutbl: ast::m_imm }, ty::vstore_uniq),
 
           _ => ()
         }
@@ -363,6 +358,7 @@ pub fn make_visit_glue(bcx: @mut Block, v: ValueRef, t: ty::t) -> @mut Block {
 }
 
 pub fn make_free_glue(bcx: @mut Block, v: ValueRef, t: ty::t) -> @mut Block {
+    //println(fmt!("inside glue %?", ty::get(t).sty));
     // NB: v0 is an *alias* of type t here, not a direct value.
     let _icx = push_ctxt("make_free_glue");
     match ty::get(t).sty {
@@ -370,7 +366,7 @@ pub fn make_free_glue(bcx: @mut Block, v: ValueRef, t: ty::t) -> @mut Block {
         let v = Load(bcx, v);
         let body = GEPi(bcx, v, [0u, abi::box_field_body]);
         let bcx = drop_ty(bcx, body, body_mt.ty);
-        trans_free(bcx, v)
+        trans_free(bcx, v, FreeFnLangItem)
       }
       ty::ty_opaque_box => {
         let v = Load(bcx, v);
@@ -380,7 +376,7 @@ pub fn make_free_glue(bcx: @mut Block, v: ValueRef, t: ty::t) -> @mut Block {
         // tydesc and calls the drop glue that got set dynamically
         call_tydesc_glue_full(bcx, valptr, td, abi::tydesc_field_drop_glue,
                               None);
-        trans_free(bcx, v)
+        trans_free(bcx, v, FreeFnLangItem)
       }
       ty::ty_uniq(*) => {
         uniq::make_free_glue(bcx, v, t)

@@ -17,7 +17,7 @@ use lib::llvm::{ValueRef, BasicBlockRef, BuilderRef};
 use lib::llvm::{True, False, Bool};
 use lib::llvm::{llvm};
 use lib;
-use middle::lang_items::LangItem;
+use middle::lang_items::{LangItem, FreeFnLangItem, ExchangeFreeFnLangItem};
 use middle::trans::base;
 use middle::trans::build;
 use middle::trans::datum;
@@ -416,11 +416,11 @@ pub fn add_clean_return_to_mut(bcx: @mut Block,
 pub fn add_clean_free(cx: @mut Block, ptr: ValueRef, heap: heap) {
     let free_fn = match heap {
       heap_managed | heap_managed_unique => {
-        let f: @fn(@mut Block) -> @mut Block = |a| glue::trans_free(a, ptr);
+        let f: @fn(@mut Block) -> @mut Block = |a| glue::trans_free(a, ptr, FreeFnLangItem);
         f
       }
       heap_exchange | heap_exchange_closure => {
-        let f: @fn(@mut Block) -> @mut Block = |a| glue::trans_exchange_free(a, ptr);
+        let f: @fn(@mut Block) -> @mut Block = |a| glue::trans_free(a, ptr, ExchangeFreeFnLangItem);
         f
       }
     };
