@@ -107,11 +107,6 @@ pub fn alloc_raw(bcx: @mut Block, unit_ty: ty::t,
     }
 }
 
-pub fn alloc_uniq_raw(bcx: @mut Block, unit_ty: ty::t,
-                      fill: ValueRef, alloc: ValueRef) -> Result {
-    alloc_raw(bcx, unit_ty, fill, alloc, base::heap_for_unique(bcx, unit_ty))
-}
-
 pub fn alloc_vec(bcx: @mut Block,
                  unit_ty: ty::t,
                  elts: uint,
