@@ -64,14 +64,13 @@ use container::{Container, Mutable};
 use cmp::{Eq, TotalOrd, Ordering, Less, Equal, Greater};
 use cmp;
 use iterator::*;
-use libc::c_void;
 use num::Zero;
 use option::{None, Option, Some};
 use ptr::to_unsafe_ptr;
 use ptr;
 use ptr::RawPtr;
 use rt::global_heap::malloc_raw;
-use rt::global_heap::realloc_raw;
+use rt::vec::vec_exchange_realloc;
 use sys;
 use sys::size_of;
 use uint;
@@ -140,6 +139,7 @@ pub fn with_capacity<T>(capacity: uint) -> ~[T] {
             vec
         } else {
             let alloc = capacity * sys::nonzero_size_of::<T>();
+            // XXX: reuse rt::vec
             let ptr = malloc_raw(alloc + sys::size_of::<Vec<()>>()) as *mut Vec<()>;
             (*ptr).alloc = alloc;
             (*ptr).fill = 0;
@@ -1246,14 +1246,8 @@ impl<T> OwnedVector<T> for ~[T] {
                     ::at_vec::raw::reserve_raw(td, ptr, n);
                 } else {
                     let ptr: *mut *mut Vec<()> = cast::transmute(self);
-                    let alloc = n * sys::nonzero_size_of::<T>();
-                    let size = alloc + sys::size_of::<Vec<()>>();
-                    if alloc / sys::nonzero_size_of::<T>() != n || size < alloc {
-                        fail!("vector size is too large: %u", n);
-                    }
-                    *ptr = realloc_raw(*ptr as *mut c_void, size)
-                           as *mut Vec<()>;
-                    (**ptr).alloc = alloc;
+                    *ptr = cast::transmute(vec_exchange_realloc(cast::transmute(*ptr),
+                            n, sys::nonzero_size_of::<T>()));
                 }
             }
         }
@@ -1958,8 +1952,11 @@ pub mod raw {
             let repr: **mut Box<Vec<()>> = cast::transmute(v);
             (**repr).data.fill = new_len * sys::nonzero_size_of::<T>();
         } else {
-            let repr: **mut Vec<()> = cast::transmute(v);
-            (**repr).fill = new_len * sys::nonzero_size_of::<T>();
+            // if is to avoid setting len of empty_vec
+            if new_len != v.len() {
+                let repr: **mut Vec<()> = cast::transmute(v);
+                (**repr).fill = new_len * sys::nonzero_size_of::<T>();
+            }
         }
     }
 

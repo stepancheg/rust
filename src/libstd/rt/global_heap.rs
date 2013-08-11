@@ -12,6 +12,7 @@ use libc::{c_void, c_char, size_t, uintptr_t, free, malloc, realloc};
 use unstable::intrinsics::TyDesc;
 use unstable::raw;
 use sys::size_of;
+use rt::vec::check_not_empty_vec_ptr;
 
 extern {
     #[rust_stack]
@@ -48,6 +49,7 @@ pub unsafe fn malloc_raw(size: uint) -> *c_void {
 /// A wrapper around libc::realloc, aborting on out-of-memory
 #[inline]
 pub unsafe fn realloc_raw(ptr: *mut c_void, size: uint) -> *mut c_void {
+    check_not_empty_vec_ptr(ptr as *c_char);
     let p = realloc(ptr, size as size_t);
     if p.is_null() {
         // we need a non-allocating way to print an error here
@@ -99,6 +101,7 @@ pub unsafe fn exchange_free_(ptr: *c_char) {
 
 #[inline]
 pub unsafe fn exchange_free(ptr: *c_char) {
+    check_not_empty_vec_ptr(ptr);
     free(ptr as *c_void);
 }
 
