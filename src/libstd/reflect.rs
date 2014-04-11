@@ -37,6 +37,11 @@ pub fn align(size: uint, align: uint) -> uint {
     ((size + align) - 1u) & !(align - 1u)
 }
 
+#[inline]
+fn align_up(x: uint, a: uint) -> uint {
+    ((x + (a - 1)) / a) * a
+}
+
 /// Adaptor to wrap around visitors implementing MovePtr.
 pub struct MovePtrAdaptor<V> {
     inner: V,
@@ -73,17 +78,18 @@ impl<V:TyVisitor + MovePtr> MovePtrAdaptor<V> {
 
     #[inline]
     pub fn align(&mut self, a: uint) {
-        self.move_ptr(|p| align(p as uint, a) as *u8)
+        //self.move_ptr(|p| align(p as uint, a) as *u8)
     }
 
     #[inline]
     pub fn align_to<T>(&mut self) {
-        self.align(mem::min_align_of::<T>());
+        //self.align(mem::min_align_of::<T>());
     }
 
     #[inline]
     pub fn bump_past<T>(&mut self) {
-        self.bump(mem::size_of::<T>());
+        //self.bump(mem::size_of::<T>());
+        self.bump(align_up(mem::size_of::<T>(), mem::min_align_of::<T>()));
     }
 
     pub fn unwrap(self) -> V { self.inner }
@@ -401,7 +407,8 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
 
     fn visit_enum_variant_field(&mut self, i: uint, offset: uint, inner: *TyDesc) -> bool {
         self.push_ptr();
-        self.bump(offset);
+        //self.bump(offset);
+        unsafe { self.bump(align_up(offset, (*inner).align)); }
         if ! self.inner.visit_enum_variant_field(i, offset, inner) { return false; }
         self.pop_ptr();
         true

@@ -660,4 +660,8 @@ fn test_repr() {
 
     struct Bar(int, int);
     exact_test(&(Bar(2, 2)), "repr::test_repr::Bar(2, 2)");
+
+    #[packed]
+    struct Baz(u8, u64);
+    exact_test(&Baz(17, 1161981756646125696), "repr::test_repr::Baz(17, 1161981756646125696)");
 }
