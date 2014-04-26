@@ -247,6 +247,19 @@ impl<'a> ReprVisitor<'a> {
         });
         return true;
     }
+
+    fn visit_class_field_impl(&mut self, i: uint, name: &str, named: bool,
+                         _mtbl: uint, inner: *TyDesc) -> bool {
+        if i != 0 {
+            try!(self, self.writer.write(", ".as_bytes()));
+        }
+        if named {
+            try!(self, self.writer.write(name.as_bytes()));
+            try!(self, self.writer.write(": ".as_bytes()));
+        }
+        self.visit_inner(inner);
+        true
+    }
 }
 
 impl<'a> TyVisitor for ReprVisitor<'a> {
@@ -380,17 +393,16 @@ impl<'a> TyVisitor for ReprVisitor<'a> {
         true
     }
 
+    #[cfg(not(stage0))]
+    fn visit_class_field(&mut self, i: uint, name: &str, named: bool,
+                         _mtbl: uint, _offset: uint, inner: *TyDesc) -> bool {
+        self.visit_class_field_impl(i, name, named, _mtbl, inner)
+    }
+
+    #[cfg(stage0)]
     fn visit_class_field(&mut self, i: uint, name: &str, named: bool,
                          _mtbl: uint, inner: *TyDesc) -> bool {
-        if i != 0 {
-            try!(self, self.writer.write(", ".as_bytes()));
-        }
-        if named {
-            try!(self, self.writer.write(name.as_bytes()));
-            try!(self, self.writer.write(": ".as_bytes()));
-        }
-        self.visit_inner(inner);
-        true
+        self.visit_class_field_impl(i, name, named, _mtbl, inner)
     }
 
     fn visit_leave_class(&mut self, _name: &str, named_fields: bool, n_fields: uint,

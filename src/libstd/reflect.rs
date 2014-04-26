@@ -302,6 +302,19 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
         true
     }
 
+    #[cfg(not(stage0))]
+    fn visit_class_field(&mut self, i: uint, name: &str, named: bool, mtbl: uint,
+                         offset: uint, inner: *TyDesc) -> bool {
+        // TODO: can do better
+        unsafe { self.align((*inner).align); }
+        if ! self.inner.visit_class_field(i, name, named, mtbl, offset, inner) {
+            return false;
+        }
+        unsafe { self.bump((*inner).size); }
+        true
+    }
+
+    #[cfg(stage0)]
     fn visit_class_field(&mut self, i: uint, name: &str, named: bool, mtbl: uint,
                          inner: *TyDesc) -> bool {
         unsafe { self.align((*inner).align); }

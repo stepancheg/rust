@@ -247,6 +247,33 @@ impl<'a, 'b> Reflector<'a, 'b> {
 
           ty::ty_struct(did, ref substs) => {
               let fields = ty::struct_fields(tcx, did, substs);
+              let field_offsets = adt::struct_type_regular_field_offsets(bcx.ccx(), t);
+              if fields.len() != field_offsets.len() {
+                  // TODO: drop it
+                  println!("GOING TO FAIL");
+                  println!("type: {}", ty::item_path_str(tcx, did));
+                  println!("fields in type: {}", fields.len());
+                  println!("fields in offsets: {}", field_offsets.len());
+                  println!("repr: {:?}", *adt::represent_type(bcx.ccx(), t));
+                  match *adt::represent_type(bcx.ccx(), t) {
+                      adt::Univariant(ref s, packed) => {
+                          println!("fields:");
+                          for &field in s.fields.iter() {
+                              println!("f: {:?}", ty::get(field).sty);
+                              match ty::get(field).sty {
+                                  ty::ty_struct(fdid, _) => {
+                                      println!("{}", ty::item_path_str(tcx, fdid));
+                                  },
+                                  _ => {}
+                              }
+                          }
+                      },
+                      ref o => {
+                          println!("other");
+                      },
+                  }
+                  assert_eq!(fields.len(), field_offsets.len());
+              }
               let mut named_fields = false;
               if !fields.is_empty() {
                   named_fields = fields.get(0).ident.name !=
@@ -261,11 +288,12 @@ impl<'a, 'b> Reflector<'a, 'b> {
               )).append(self.c_size_and_align(t).as_slice());
               self.bracketed("class", extra.as_slice(), |this| {
                   for (i, field) in fields.iter().enumerate() {
+                      let field_offset = *field_offsets.get(i) as uint;
                       let extra = (vec!(
                         this.c_uint(i),
                         this.c_slice(token::get_ident(field.ident)),
                         this.c_bool(named_fields)
-                      )).append(this.c_mt(&field.mt).as_slice());
+                      )).append(this.c_mt(&field.mt).as_slice()).append([this.c_uint(field_offset)]);
                       this.visit("class_field", extra.as_slice());
                   }
               })

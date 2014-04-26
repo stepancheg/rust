@@ -801,6 +801,23 @@ fn compute_struct_field_offsets(ccx: &CrateContext, st: &Struct) -> Vec<u64> {
 }
 
 /**
+ * Compute field offsets of type, that must be struct.
+ */
+pub fn struct_type_regular_field_offsets(ccx: &CrateContext, st_t: ty::t) -> Vec<u64> {
+    let repr = represent_type(ccx, st_t);
+    match *repr {
+        Univariant(ref st, dtor) => {
+            let mut offsets = compute_struct_field_offsets(ccx, st);
+            if dtor {
+                offsets.pop();
+            }
+            offsets
+        },
+        _ => ccx.sess().bug("function param must be struct")
+    }
+}
+
+/**
  * Building structs is a little complicated, because we might need to
  * insert padding if a field's value is less aligned than its type.
  *

@@ -118,8 +118,12 @@ pub trait TyVisitor {
 
     fn visit_enter_class(&mut self, name: &str, named_fields: bool, n_fields: uint,
                          sz: uint, align: uint) -> bool;
+    #[cfg(stage0)]
     fn visit_class_field(&mut self, i: uint, name: &str, named: bool,
                          mtbl: uint, inner: *TyDesc) -> bool;
+    #[cfg(not(stage0))]
+    fn visit_class_field(&mut self, i: uint, name: &str, named: bool,
+                         mtbl: uint, offset: uint, inner: *TyDesc) -> bool;
     fn visit_leave_class(&mut self, name: &str, named_fields: bool, n_fields: uint,
                          sz: uint, align: uint) -> bool;
 
