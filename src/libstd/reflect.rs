@@ -274,27 +274,6 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
         true
     }
 
-    fn visit_enter_rec(&mut self, n_fields: uint, sz: uint, align: uint) -> bool {
-        self.align(align);
-        if ! self.inner.visit_enter_rec(n_fields, sz, align) { return false; }
-        true
-    }
-
-    fn visit_rec_field(&mut self, i: uint, name: &str,
-                       mtbl: uint, inner: *TyDesc) -> bool {
-        unsafe { self.align((*inner).align); }
-        if ! self.inner.visit_rec_field(i, name, mtbl, inner) {
-            return false;
-        }
-        unsafe { self.bump((*inner).size); }
-        true
-    }
-
-    fn visit_leave_rec(&mut self, n_fields: uint, sz: uint, align: uint) -> bool {
-        if ! self.inner.visit_leave_rec(n_fields, sz, align) { return false; }
-        true
-    }
-
     fn visit_enter_class(&mut self, name: &str, named_fields: bool, n_fields: uint, sz: uint,
                          align: uint) -> bool {
         self.align(align);

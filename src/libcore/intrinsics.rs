@@ -116,13 +116,6 @@ pub trait TyVisitor {
     fn visit_evec_fixed(&mut self, n: uint, sz: uint, align: uint,
                         mtbl: uint, inner: *TyDesc) -> bool;
 
-    fn visit_enter_rec(&mut self, n_fields: uint,
-                       sz: uint, align: uint) -> bool;
-    fn visit_rec_field(&mut self, i: uint, name: &str,
-                       mtbl: uint, inner: *TyDesc) -> bool;
-    fn visit_leave_rec(&mut self, n_fields: uint,
-                       sz: uint, align: uint) -> bool;
-
     fn visit_enter_class(&mut self, name: &str, named_fields: bool, n_fields: uint,
                          sz: uint, align: uint) -> bool;
     fn visit_class_field(&mut self, i: uint, name: &str, named: bool,

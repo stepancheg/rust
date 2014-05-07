@@ -377,30 +377,6 @@ impl<'a> TyVisitor for ReprVisitor<'a> {
         })
     }
 
-    fn visit_enter_rec(&mut self, _n_fields: uint,
-                       _sz: uint, _align: uint) -> bool {
-        try!(self, self.writer.write(['{' as u8]));
-        true
-    }
-
-    fn visit_rec_field(&mut self, i: uint, name: &str,
-                       mtbl: uint, inner: *TyDesc) -> bool {
-        if i != 0 {
-            try!(self, self.writer.write(", ".as_bytes()));
-        }
-        self.write_mut_qualifier(mtbl);
-        try!(self, self.writer.write(name.as_bytes()));
-        try!(self, self.writer.write(": ".as_bytes()));
-        self.visit_inner(inner);
-        true
-    }
-
-    fn visit_leave_rec(&mut self, _n_fields: uint,
-                       _sz: uint, _align: uint) -> bool {
-        try!(self, self.writer.write(['}' as u8]));
-        true
-    }
-
     fn visit_enter_class(&mut self, name: &str, named_fields: bool, n_fields: uint,
                          _sz: uint, _align: uint) -> bool {
         try!(self, self.writer.write(name.as_bytes()));

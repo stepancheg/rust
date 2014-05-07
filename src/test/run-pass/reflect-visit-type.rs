@@ -85,13 +85,6 @@ impl TyVisitor for MyVisitor {
     fn visit_evec_fixed(&mut self, _n: uint, _sz: uint, _align: uint,
                         _mtbl: uint, _inner: *TyDesc) -> bool { true }
 
-    fn visit_enter_rec(&mut self, _n_fields: uint,
-                       _sz: uint, _align: uint) -> bool { true }
-    fn visit_rec_field(&mut self, _i: uint, _name: &str,
-                       _mtbl: uint, _inner: *TyDesc) -> bool { true }
-    fn visit_leave_rec(&mut self, _n_fields: uint,
-                       _sz: uint, _align: uint) -> bool { true }
-
     fn visit_enter_class(&mut self, _name: &str, _named_fields: bool, _n_fields: uint,
                          _sz: uint, _align: uint) -> bool { true }
     fn visit_class_field(&mut self, _i: uint, _name: &str, _named: bool,
