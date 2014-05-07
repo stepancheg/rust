@@ -19,6 +19,7 @@ Runtime type reflection
 use intrinsics::{Disr, Opaque, TyDesc, TyVisitor};
 use mem;
 use owned::Box;
+use vec::Vec;
 
 /**
  * Trait for visitor that wishes to reflect on data. To use this, create a
@@ -27,9 +28,7 @@ use owned::Box;
  * then build a MovePtrAdaptor wrapped around your struct.
  */
 pub trait MovePtr {
-    fn move_ptr(&mut self, adjustment: |*u8| -> *u8);
-    fn push_ptr(&mut self);
-    fn pop_ptr(&mut self);
+    fn set_ptr(&mut self, ptr: *u8);
 }
 
 /// Helper function for alignment calculation.
@@ -40,21 +39,41 @@ pub fn align(size: uint, align: uint) -> uint {
 
 /// Adaptor to wrap around visitors implementing MovePtr.
 pub struct MovePtrAdaptor<V> {
-    inner: V
+    inner: V,
+    ptr: *u8,
+    ptr_stk: Vec<*u8>,
 }
-pub fn MovePtrAdaptor<V:TyVisitor + MovePtr>(v: V) -> MovePtrAdaptor<V> {
-    MovePtrAdaptor { inner: v }
+pub fn MovePtrAdaptor<V:TyVisitor + MovePtr>(mut v: V, ptr: *u8) -> MovePtrAdaptor<V> {
+    v.set_ptr(ptr);
+    MovePtrAdaptor {
+        inner: v,
+        ptr: ptr,
+        ptr_stk: vec!(),
+    }
 }
 
 impl<V:TyVisitor + MovePtr> MovePtrAdaptor<V> {
+    fn push_ptr(&mut self) {
+        self.ptr_stk.push(self.ptr);
+    }
+
+    fn pop_ptr(&mut self) {
+        self.ptr = self.ptr_stk.pop().unwrap();
+    }
+
+    fn move_ptr(&mut self, adjustment: |*u8| -> *u8) {
+        self.ptr = adjustment(self.ptr);
+        self.inner.set_ptr(self.ptr);
+    }
+
     #[inline]
     pub fn bump(&mut self, sz: uint) {
-        self.inner.move_ptr(|p| ((p as uint) + sz) as *u8)
+        self.move_ptr(|p| ((p as uint) + sz) as *u8)
     }
 
     #[inline]
     pub fn align(&mut self, a: uint) {
-        self.inner.move_ptr(|p| align(p as uint, a) as *u8)
+        self.move_ptr(|p| align(p as uint, a) as *u8)
     }
 
     #[inline]
@@ -368,10 +387,10 @@ impl<V:TyVisitor + MovePtr> TyVisitor for MovePtrAdaptor<V> {
     }
 
     fn visit_enum_variant_field(&mut self, i: uint, offset: uint, inner: *TyDesc) -> bool {
-        self.inner.push_ptr();
+        self.push_ptr();
         self.bump(offset);
         if ! self.inner.visit_enum_variant_field(i, offset, inner) { return false; }
-        self.inner.pop_ptr();
+        self.pop_ptr();
         true
     }
 

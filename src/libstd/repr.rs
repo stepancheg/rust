@@ -103,17 +103,14 @@ enum VariantState {
 
 pub struct ReprVisitor<'a> {
     ptr: *u8,
-    ptr_stk: Vec<*u8>,
     var_stk: Vec<VariantState>,
     writer: &'a mut io::Writer,
     last_err: Option<io::IoError>,
 }
 
-pub fn ReprVisitor<'a>(ptr: *u8,
-                       writer: &'a mut io::Writer) -> ReprVisitor<'a> {
+pub fn ReprVisitor<'a>(writer: &'a mut io::Writer) -> ReprVisitor<'a> {
     ReprVisitor {
-        ptr: ptr,
-        ptr_stk: vec!(),
+        ptr: 0 as *u8,
         var_stk: vec!(),
         writer: writer,
         last_err: None,
@@ -122,14 +119,8 @@ pub fn ReprVisitor<'a>(ptr: *u8,
 
 impl<'a> MovePtr for ReprVisitor<'a> {
     #[inline]
-    fn move_ptr(&mut self, adjustment: |*u8| -> *u8) {
-        self.ptr = adjustment(self.ptr);
-    }
-    fn push_ptr(&mut self) {
-        self.ptr_stk.push(self.ptr);
-    }
-    fn pop_ptr(&mut self) {
-        self.ptr = self.ptr_stk.pop().unwrap();
+    fn set_ptr(&mut self, ptr: *u8) {
+        self.ptr = ptr;
     }
 }
 
@@ -154,13 +145,12 @@ impl<'a> ReprVisitor<'a> {
             // This should call the constructor up above, but due to limiting
             // issues we have to recreate it here.
             let u = ReprVisitor {
-                ptr: ptr,
-                ptr_stk: vec!(),
+                ptr: 0 as *u8,
                 var_stk: vec!(),
                 writer: ::cast::transmute_copy(&self.writer),
                 last_err: None,
             };
-            let mut v = reflect::MovePtrAdaptor(u);
+            let mut v = reflect::MovePtrAdaptor(u, ptr);
             // Obviously this should not be a thing, but blame #8401 for now
             visit_tydesc(inner, &mut v as &mut TyVisitor);
             match v.unwrap().last_err {
@@ -570,8 +560,8 @@ pub fn write_repr<T>(writer: &mut io::Writer, object: &T) -> io::IoResult<()> {
     unsafe {
         let ptr = object as *T as *u8;
         let tydesc = get_tydesc::<T>();
-        let u = ReprVisitor(ptr, writer);
-        let mut v = reflect::MovePtrAdaptor(u);
+        let u = ReprVisitor(writer);
+        let mut v = reflect::MovePtrAdaptor(u, ptr);
         visit_tydesc(tydesc, &mut v as &mut TyVisitor);
         match v.unwrap().last_err {
             Some(e) => Err(e),
