@@ -236,6 +236,12 @@ pub fn test_main(args: &[String], tests: Vec<TestDescAndFn> ) {
             Some(Err(msg)) => panic!("{}", msg),
             None => return
         };
+    if opts.list {
+        for test in tests.iter() {
+        }
+        panic!();
+        return;
+    }
     match run_tests_console(&opts, tests) {
         Ok(true) => {}
         Ok(false) => panic!("Some tests failed"),
@@ -268,6 +274,7 @@ pub enum ColorConfig {
 }
 
 pub struct TestOpts {
+    pub list: bool,
     pub filter: Option<Regex>,
     pub run_ignored: bool,
     pub run_tests: bool,
@@ -285,6 +292,7 @@ impl TestOpts {
     #[cfg(test)]
     fn new() -> TestOpts {
         TestOpts {
+            list: false,
             filter: None,
             run_ignored: false,
             run_tests: false,
@@ -308,6 +316,7 @@ fn optgroups() -> Vec<getopts::OptGroup> {
       getopts::optflag("", "test", "Run tests and not benchmarks"),
       getopts::optflag("", "bench", "Run benchmarks instead of tests"),
       getopts::optflag("h", "help", "Display this message (longer with --help)"),
+      getopts::optflag("l", "list", "List tests),
       getopts::optopt("", "save-metrics", "Location to save bench metrics",
                      "PATH"),
       getopts::optopt("", "ratchet-metrics",
@@ -380,6 +389,8 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
         None
     };
 
+    let list = matches.opt_present("list");
+
     let run_ignored = matches.opt_present("ignored");
 
     let logfile = matches.opt_str("logfile");
@@ -418,6 +429,7 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
     };
 
     let test_opts = TestOpts {
+        list: list,
         filter: filter,
         run_ignored: run_ignored,
         run_tests: run_tests,
