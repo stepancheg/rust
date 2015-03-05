@@ -250,6 +250,13 @@ impl ToSocketAddrs for (IpAddr, u16) {
 }
 
 fn resolve_socket_addr(s: &str, p: u16) -> io::Result<vec::IntoIter<SocketAddr>> {
+    if s.is_empty() {
+        return Ok(vec![
+            SocketAddr::new(IpAddr::new_v4(0, 0, 0, 0), p),
+            SocketAddr::new(IpAddr::new_v6(0, 0, 0, 0, 0, 0, 0, 0), p),
+        ].into_iter());
+    }
+
     let ips = try!(lookup_host(s));
     let v: Vec<_> = try!(ips.map(|a| {
         a.map(|mut a| { a.set_port(p); a })
@@ -577,6 +584,12 @@ mod tests {
 
         let a = SocketAddr::new(IpAddr::new_v4(127, 0, 0, 1), 23924);
         assert!(tsa(("localhost", 23924u16)).unwrap().contains(&a));
+
+        let a = vec![
+            SocketAddr::new(IpAddr::new_v4(0, 0, 0, 0), 1719),
+            SocketAddr::new(IpAddr::new_v6(0, 0, 0, 0, 0, 0, 0, 0), 1719),
+        ];
+        assert_eq!(Ok(a), tsa(("", 1719)));
     }
 
     #[test]
@@ -589,5 +602,11 @@ mod tests {
 
         let a = SocketAddr::new(IpAddr::new_v4(127, 0, 0, 1), 23924);
         assert!(tsa("localhost:23924").unwrap().contains(&a));
+
+        let a = vec![
+            SocketAddr::new(IpAddr::new_v4(0, 0, 0, 0), 1719),
+            SocketAddr::new(IpAddr::new_v6(0, 0, 0, 0, 0, 0, 0, 0), 1719),
+        ];
+        assert_eq!(Ok(a), tsa(":1719"));
     }
 }
