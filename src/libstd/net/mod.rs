@@ -69,6 +69,28 @@ fn each_addr<A: ToSocketAddrs + ?Sized, F, T>(addr: &A, mut f: F) -> io::Result<
     }))
 }
 
+/// Resolve addr, apply the function to the only resolved addr, and fail
+/// if the address is resolved to zero or more than one socket addrs.
+fn one_addr<A: ToSocketAddrs + ?Sized, F, T>(addr: &A, mut f: F) -> io::Result<T>
+    where F: FnMut(&SocketAddr) -> io::Result<T>
+{
+    let mut iter = try!(addr.to_socket_addrs());
+    let r = match iter.next() {
+        None => {
+            return Err(Error::new(
+                ErrorKind::InvalidInput, "could not resolve to any addresses", None));
+        },
+        Some(sa) => try!(f(&sa)),
+    };
+
+    if iter.next().is_some() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput, "address resolved to more than one socket address", None));
+    }
+
+    Ok(r)
+}
+
 /// An iterator over `SocketAddr` values returned from a host lookup operation.
 pub struct LookupHost(net_imp::LookupHost);
 

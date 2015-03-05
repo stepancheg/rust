@@ -12,6 +12,7 @@ use prelude::v1::*;
 use io::prelude::*;
 
 use io;
+use io::{Error, ErrorKind};
 use net::{ToSocketAddrs, SocketAddr, Shutdown};
 use sys_common::net2 as net_imp;
 use sys_common::AsInner;
@@ -164,6 +165,76 @@ impl TcpListener {
         super::each_addr(addr, net_imp::TcpListener::bind).map(TcpListener)
     }
 
+    /// Creates a new `TcpListener` which will be bound to the specified
+    /// address.
+    ///
+    /// The returned listener is ready for accepting connections.
+    ///
+    /// Binding with a port number of 0 will request that the OS assigns a port
+    /// to this listener. The port allocated can be queried via the
+    /// `socket_addr` function.
+    ///
+    /// The address type can be any implementer of `ToSocketAddrs` trait. See
+    /// its documentation for concrete examples.
+    pub fn bind_one<A: ToSocketAddrs + ?Sized>(addr: &A) -> io::Result<TcpListener> {
+        super::one_addr(addr, net_imp::TcpListener::bind).map(TcpListener)
+    }
+
+    /// Creates a vec of `TcpListener` which will be bound to the specified
+    /// address.
+    ///
+    /// The returned listeners are ready for accepting connections.
+    ///
+    /// Binding with a port number of 0 will request that the OS assigns
+    /// a port to the first listener, and following listeners will be
+    /// bound to the same port. Operating system provides no API to bind
+    /// multiple sockets to the same port on different protocols, so
+    /// this function may occasionally fail.
+    ///
+    /// The port allocated can be queried via the `socket_addr` function.
+    ///
+    /// The address type can be any implementer of `ToSocketAddrs` trait. See
+    /// its documentation for concrete examples.
+    pub fn bind_all<A: ToSocketAddrs + ?Sized>(addr: &A) -> io::Result<Vec<TcpListener>> {
+        let mut r = Vec::new();
+
+        let mut iter = try!(addr.to_socket_addrs());
+        let first_addr = match iter.next() {
+            None => {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput, "could not resolve to any addresses", None));
+            },
+            Some(sa) => sa,
+        };
+
+        let first_listener = TcpListener(try!(net_imp::TcpListener::bind(&first_addr)));
+
+        let common_random_port = match first_addr.port() {
+            0 => Some(try!(first_listener.socket_addr()).port()),
+            _ => None,
+        };
+
+        r.push(first_listener);
+
+        for addr in iter {
+            let addr_to_use = match (addr.port(), common_random_port) {
+                (0, Some(p)) => SocketAddr::new(addr.ip(), p),
+                (0, None)    |
+                (_, Some(_)) => {
+                    return Err(Error::new(ErrorKind::InvalidInput,
+                        "cannot mix addresses with zero and non-zero ports", None));
+                },
+                _ => addr,
+            };
+            // If port was zero, bind here may fail, if some other
+            // process bound port on this protocol. Althouth, it is
+            // rare.
+            r.push(TcpListener(try!(net_imp::TcpListener::bind(&addr_to_use))));
+        }
+
+        Ok(r)
+    }
+
     /// Returns the local socket address of this listener.
     pub fn socket_addr(&self) -> io::Result<SocketAddr> {
         self.0.socket_addr()
@@ -215,7 +286,7 @@ mod tests {
     use io::ErrorKind;
     use io::prelude::*;
     use net::*;
-    use net::test::{next_test_ip4, next_test_ip6};
+    use net::test::{next_test_ip4, next_test_ip6, next_test_port};
     use sync::mpsc::channel;
     use thread;
 
@@ -244,6 +315,66 @@ mod tests {
     }
 
     #[test]
+    fn bind_all_fixed_port() {
+        let port = next_test_port();
+
+        let _threads: Vec<_> = t!(TcpListener::bind_all(&("", port)))
+                .into_iter()
+                .map(|listener|
+                    thread::spawn(move || {
+                        t!(listener.accept()).0.write(&[144]);
+                    })
+                )
+                .collect();
+
+        for &ip in &["127.0.0.1", "::1"] {
+            let mut stream = t!(TcpStream::connect(&(ip, port)));
+            let mut buf = [0];
+            t!(stream.read(&mut buf));
+            assert!(buf[0] == 144);
+        }
+    }
+
+    #[test]
+    fn bind_all_random_port() {
+        fn make_listeners() -> Vec<TcpListener> {
+            for i in range(0, 1000) {
+                // bind_all on random port may rarely fail
+                let r = TcpListener::bind_all(":0");
+                match r {
+                    Ok(listeners) => return listeners,
+                    _ => (),
+                }
+            }
+            panic!("failed to bind to random port after 1000 attemts, very likely a bug");
+        }
+
+        let listeners = make_listeners();
+
+        // IPv4 and IPv6
+        assert_eq!(2, listeners.len());
+        assert_eq!(
+            listeners[0].socket_addr().unwrap().port(),
+            listeners[1].socket_addr().unwrap().port());
+        let port = listeners[0].socket_addr().unwrap().port();
+
+        let _threads: Vec<_> = listeners.into_iter()
+                .map(|listener|
+                    thread::spawn(move || {
+                        t!(listener.accept()).0.write(&[144]);
+                    })
+                )
+                .collect();
+
+        for &ip in &["127.0.0.1", "::1"] {
+            let mut stream = t!(TcpStream::connect(&(ip, port)));
+            let mut buf = [0];
+            t!(stream.read(&mut buf));
+            assert!(buf[0] == 144);
+        }
+    }
+
+    #[test]
     fn connect_error() {
         match TcpStream::connect("0.0.0.0:1") {
             Ok(..) => panic!(),
@@ -253,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn listen_localhost() {
+    fn bind_localhost() {
         let socket_addr = next_test_ip4();
         let listener = t!(TcpListener::bind(&socket_addr));
 
@@ -267,6 +398,31 @@ mod tests {
         let mut buf = [0];
         t!(stream.read(&mut buf));
         assert!(buf[0] == 144);
+    }
+
+    #[test]
+    fn bind_one_localhost() {
+        let socket_addr = next_test_ip4();
+        let listener = t!(TcpListener::bind_one(&socket_addr));
+
+        let _t = thread::spawn(move || {
+            let mut stream = t!(TcpStream::connect(&("localhost",
+                                                     socket_addr.port())));
+            t!(stream.write(&[144]));
+        });
+
+        let mut stream = t!(listener.accept()).0;
+        let mut buf = [0];
+        t!(stream.read(&mut buf));
+        assert!(buf[0] == 144);
+    }
+
+    #[test]
+    fn bind_one_fail_more_than_one() {
+        match TcpListener::bind_one(&("", next_test_port())) {
+            Ok(..) => panic!(),
+            Err(..) => {},
+        }
     }
 
     #[test]
