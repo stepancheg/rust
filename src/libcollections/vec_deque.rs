@@ -50,13 +50,11 @@ const MAXIMUM_ZST_CAPACITY: usize = 1 << (64 - 1); // Largest possible power of 
 /// to back.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct VecDeque<T> {
-    // tail and head are pointers into the buffer. Tail always points
-    // to the first element that could be read, Head always points
-    // to where data should be written.
-    // If tail == head the buffer is empty. The length of the ringbuffer
-    // is defined as the distance between the two.
+    // tail is a pointer into the buffer. Tail always points
+    // to the first element that could be read, len always contains
+    // the number of elements in the collection.
     tail: usize,
-    head: usize,
+    len: usize,
     buf: RawVec<T>,
 }
 
@@ -105,6 +103,10 @@ impl<T> VecDeque<T> {
         } else {
             self.buf.cap()
         }
+    }
+
+    fn head(&self) -> usize {
+        head(self.tail, self.len, self.cap())
     }
 
     /// Turn ptr into a slice
@@ -342,22 +344,21 @@ impl<T> VecDeque<T> {
         //              H                 T
         // C [o o o o o . . . . . . . . . o o ]
 
-        if self.tail <= self.head {
+        if self.tail <= self.head() {
             // A
             // Nop
-        } else if self.head < old_cap - self.tail {
+        } else if self.head() < old_cap - self.tail {
             // B
-            self.copy_nonoverlapping(old_cap, 0, self.head);
-            self.head += old_cap;
-            debug_assert!(self.head > self.tail);
+            self.copy_nonoverlapping(old_cap, 0, self.head());
+            debug_assert!(self.head() > self.tail);
         } else {
             // C
             let new_tail = new_cap - (old_cap - self.tail);
             self.copy_nonoverlapping(new_tail, self.tail, old_cap - self.tail);
             self.tail = new_tail;
-            debug_assert!(self.head < self.tail);
+            debug_assert!(self.head() < self.tail);
         }
-        debug_assert!(self.head < self.cap());
+        debug_assert!(self.head() < self.cap());
         debug_assert!(self.tail < self.cap());
         debug_assert!(self.cap().count_ones() == 1);
     }
@@ -569,7 +570,7 @@ impl<T> VecDeque<T> {
             // At all other times, element positions are unaffected.
             //
             // Indicates that elements at the head should be moved.
-            let head_outside = self.head == 0 || self.head >= target_cap;
+            let head_outside = self.head() == 0 || self.head() >= target_cap;
             // Move elements from out of desired bounds (positions after target_cap)
             if self.tail >= target_cap && head_outside {
                 //                    T             H
@@ -579,7 +580,6 @@ impl<T> VecDeque<T> {
                 unsafe {
                     self.copy_nonoverlapping(0, self.tail, self.len());
                 }
-                self.head = self.len();
                 self.tail = 0;
             } else if self.tail != 0 && self.tail < target_cap && head_outside {
                 //          T             H
@@ -590,26 +590,25 @@ impl<T> VecDeque<T> {
                 unsafe {
                     self.copy_nonoverlapping(0, target_cap, len);
                 }
-                self.head = len;
                 debug_assert!(self.head < self.tail);
             } else if self.tail >= target_cap {
                 //              H                 T
                 //   [o o o o o . . . . . . . . . o o ]
                 //              H T
                 //   [o o o o o . o o ]
-                debug_assert!(self.wrap_sub(self.head, 1) < target_cap);
+                debug_assert!(self.wrap_sub(self.head(), 1) < target_cap);
                 let len = self.cap() - self.tail;
                 let new_tail = target_cap - len;
                 unsafe {
                     self.copy_nonoverlapping(new_tail, self.tail, len);
                 }
                 self.tail = new_tail;
-                debug_assert!(self.head < self.tail);
+                debug_assert!(self.head() < self.tail);
             }
 
             self.buf.shrink_to_fit(target_cap);
 
-            debug_assert!(self.head < self.cap());
+            debug_assert!(self.head() < self.cap());
             debug_assert!(self.tail < self.cap());
             debug_assert!(self.cap().count_ones() == 1);
         }
@@ -663,7 +662,7 @@ impl<T> VecDeque<T> {
     pub fn iter(&self) -> Iter<T> {
         Iter {
             tail: self.tail,
-            head: self.head,
+            len: self.len,
             ring: unsafe { self.buffer_as_slice() },
         }
     }
@@ -689,7 +688,7 @@ impl<T> VecDeque<T> {
     pub fn iter_mut(&mut self) -> IterMut<T> {
         IterMut {
             tail: self.tail,
-            head: self.head,
+            len: self.len,
             ring: unsafe { self.buffer_as_mut_slice() },
         }
     }
@@ -704,10 +703,10 @@ impl<T> VecDeque<T> {
             let buf = self.buffer_as_slice();
             if contiguous {
                 let (empty, buf) = buf.split_at(0);
-                (&buf[self.tail..self.head], empty)
+                (&buf[self.tail..self.head()], empty)
             } else {
                 let (mid, right) = buf.split_at(self.tail);
-                let (left, _) = mid.split_at(self.head);
+                let (left, _) = mid.split_at(self.head());
                 (right, left)
             }
         }
@@ -720,7 +719,7 @@ impl<T> VecDeque<T> {
     pub fn as_mut_slices(&mut self) -> (&mut [T], &mut [T]) {
         unsafe {
             let contiguous = self.is_contiguous();
-            let head = self.head;
+            let head = self.head();
             let tail = self.tail;
             let buf = self.buffer_as_mut_slice();
 
@@ -750,7 +749,7 @@ impl<T> VecDeque<T> {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn len(&self) -> usize {
-        count(self.tail, self.head, self.cap())
+        self.len
     }
 
     /// Returns true if the buffer contains no elements
@@ -836,12 +835,12 @@ impl<T> VecDeque<T> {
         // [. . . o o x x o o . . .]
         //
         let drain_tail = self.wrap_add(self.tail, start);
-        let drain_head = self.wrap_add(self.tail, end);
-        let head = self.head;
+        let drain_len = end - start;
+        let head = self.head();
 
         // "forget" about the values after the start of the drain until after
         // the drain is complete and the Drain destructor is run.
-        self.head = drain_tail;
+        self.len -= drain_len;
 
         Drain {
             deque: self as *mut _,
@@ -849,7 +848,7 @@ impl<T> VecDeque<T> {
             after_head: head,
             iter: Iter {
                 tail: drain_tail,
-                head: drain_head,
+                len: drain_len,
                 ring: unsafe { self.buffer_as_mut_slice() },
             },
         }
@@ -1012,6 +1011,7 @@ impl<T> VecDeque<T> {
         } else {
             let tail = self.tail;
             self.tail = self.wrap_add(self.tail, 1);
+            self.len -= 1;
             unsafe { Some(self.buffer_read(tail)) }
         }
     }
@@ -1069,8 +1069,8 @@ impl<T> VecDeque<T> {
             debug_assert!(!self.is_full());
         }
 
-        let head = self.head;
-        self.head = self.wrap_add(self.head, 1);
+        let head = self.head();
+        self.len += 1;
         unsafe { self.buffer_write(head, value) }
     }
 
@@ -1093,15 +1093,15 @@ impl<T> VecDeque<T> {
         if self.is_empty() {
             None
         } else {
-            self.head = self.wrap_sub(self.head, 1);
-            let head = self.head;
+            self.len -= 1;
+            let head = self.head();
             unsafe { Some(self.buffer_read(head)) }
         }
     }
 
     #[inline]
     fn is_contiguous(&self) -> bool {
-        self.tail <= self.head
+        self.tail <= self.head()
     }
 
     /// Removes an element from anywhere in the `VecDeque` and returns it, replacing it with the
@@ -1288,8 +1288,8 @@ impl<T> VecDeque<T> {
                     //      [. . . o o o o I A o o . . . . .]
                     //                       M M M
 
-                    self.copy(idx + 1, idx, self.head - idx);
-                    self.head = self.wrap_add(self.head, 1);
+                    self.copy(idx + 1, idx, self.head() - idx);
+                    self.len += 1;
                 }
             }
             (false, true, true) => {
@@ -1304,7 +1304,7 @@ impl<T> VecDeque<T> {
                     //                           M M
 
                     self.copy(self.tail - 1, self.tail, index);
-                    self.tail -= 1;
+                    self.len += 1;
                 }
             }
             (false, false, true) => {
@@ -1319,7 +1319,7 @@ impl<T> VecDeque<T> {
                     //       M M M                         M
 
                     // copy elements up to new head
-                    self.copy(1, 0, self.head);
+                    self.copy(1, 0, self.head());
 
                     // copy last element into empty spot at bottom of buffer
                     self.copy(0, self.cap() - 1, 1);
@@ -1327,7 +1327,7 @@ impl<T> VecDeque<T> {
                     // move elements from idx to end forward not including ^ element
                     self.copy(idx + 1, idx, self.cap() - 1 - idx);
 
-                    self.head += 1;
+                    self.len += 1;
                 }
             }
             (false, true, false) if idx == 0 => {
@@ -1349,6 +1349,7 @@ impl<T> VecDeque<T> {
                     self.copy(self.cap() - 1, 0, 1);
 
                     self.tail -= 1;
+                    self.len += 1;
                 }
             }
             (false, true, false) => {
@@ -1372,6 +1373,7 @@ impl<T> VecDeque<T> {
                     self.copy(0, 1, idx - 1);
 
                     self.tail -= 1;
+                    self.len += 1;
                 }
             }
             (false, false, false) => {
@@ -1385,8 +1387,8 @@ impl<T> VecDeque<T> {
                     //      [o o o o I A o o . . . . . o o o]
                     //                 M M M
 
-                    self.copy(idx + 1, idx, self.head - idx);
-                    self.head += 1;
+                    self.copy(idx + 1, idx, self.head() - idx);
+                    self.len += 1;
                 }
             }
         }
@@ -1477,8 +1479,8 @@ impl<T> VecDeque<T> {
                     //      [. . . o o o o o o . . . . . . .]
                     //                     M M
 
-                    self.copy(idx, idx + 1, self.head - idx - 1);
-                    self.head -= 1;
+                    self.copy(idx, idx + 1, self.head() - idx - 1);
+                    self.len -= 1;
                 }
             }
             (false, true, true) => {
@@ -1494,6 +1496,7 @@ impl<T> VecDeque<T> {
 
                     self.copy(self.tail + 1, self.tail, index);
                     self.tail = self.wrap_add(self.tail, 1);
+                    self.len -= 1;
                 }
             }
             (false, false, false) => {
@@ -1507,8 +1510,8 @@ impl<T> VecDeque<T> {
                     //      [o o o o o o . . . . . . . o o o]
                     //               M M
 
-                    self.copy(idx, idx + 1, self.head - idx - 1);
-                    self.head -= 1;
+                    self.copy(idx, idx + 1, self.head() - idx - 1);
+                    self.len -= 1;
                 }
             }
             (false, false, true) => {
@@ -1535,15 +1538,15 @@ impl<T> VecDeque<T> {
                     self.copy(idx, idx + 1, self.cap() - idx - 1);
 
                     // Prevents underflow.
-                    if self.head != 0 {
+                    if self.head() != 0 {
                         // copy first element into empty spot
                         self.copy(self.cap() - 1, 0, 1);
 
                         // move elements in the head section backwards
-                        self.copy(0, 1, self.head - 1);
+                        self.copy(0, 1, self.head() - 1);
                     }
 
-                    self.head = self.wrap_sub(self.head, 1);
+                    self.len -= 1;
                 }
             }
             (false, true, false) => {
@@ -1567,6 +1570,7 @@ impl<T> VecDeque<T> {
                     self.copy(self.tail + 1, self.tail, self.cap() - self.tail - 1);
 
                     self.tail = self.wrap_add(self.tail, 1);
+                    self.len -= 1;
                 }
             }
         }
@@ -1634,8 +1638,8 @@ impl<T> VecDeque<T> {
         }
 
         // Cleanup where the ends of the buffers are
-        self.head = self.wrap_sub(self.head, other_len);
-        other.head = other.wrap_index(other_len);
+        self.len -= other_len;
+        other.len = other_len;
 
         other
     }
@@ -1751,12 +1755,18 @@ fn count(tail: usize, head: usize, size: usize) -> usize {
     (head.wrapping_sub(tail)) & (size - 1)
 }
 
+/// Calculate the position of tail
+fn head(tail: usize, len: usize, cap: usize) -> usize {
+    debug_assert!(cap.is_power_of_two());
+    (tail + len) & (cap - 1)
+}
+
 /// `VecDeque` iterator.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Iter<'a, T: 'a> {
     ring: &'a [T],
     tail: usize,
-    head: usize,
+    len: usize,
 }
 
 // FIXME(#19839) Remove in favor of `#[derive(Clone)]`
@@ -1766,7 +1776,7 @@ impl<'a, T> Clone for Iter<'a, T> {
         Iter {
             ring: self.ring,
             tail: self.tail,
-            head: self.head,
+            len: self.len,
         }
     }
 }
@@ -1777,17 +1787,18 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<&'a T> {
-        if self.tail == self.head {
+        if self.len == 0 {
             return None;
         }
         let tail = self.tail;
         self.tail = wrap_index(self.tail.wrapping_add(1), self.ring.len());
+        self.len -= 1;
         unsafe { Some(self.ring.get_unchecked(tail)) }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = count(self.tail, self.head, self.ring.len());
+        let len = self.len;
         (len, Some(len))
     }
 }
@@ -1796,11 +1807,11 @@ impl<'a, T> Iterator for Iter<'a, T> {
 impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a T> {
-        if self.tail == self.head {
+        if self.len == 0 {
             return None;
         }
-        self.head = wrap_index(self.head.wrapping_sub(1), self.ring.len());
-        unsafe { Some(self.ring.get_unchecked(self.head)) }
+        self.len -= 1;
+        unsafe { Some(self.ring.get_unchecked(head(self.tail, self.len, self.ring.cap()))) }
     }
 }
 
@@ -1812,7 +1823,7 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 pub struct IterMut<'a, T: 'a> {
     ring: &'a mut [T],
     tail: usize,
-    head: usize,
+    len: usize,
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1821,21 +1832,18 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<&'a mut T> {
-        if self.tail == self.head {
+        if self.len == 0 {
             return None;
         }
         let tail = self.tail;
         self.tail = wrap_index(self.tail.wrapping_add(1), self.ring.len());
-
-        unsafe {
-            let elem = self.ring.get_unchecked_mut(tail);
-            Some(&mut *(elem as *mut _))
-        }
+        self.len -= 1;
+        unsafe { Some(self.ring.get_unchecked_mut(tail)) }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = count(self.tail, self.head, self.ring.len());
+        let len = self.len;
         (len, Some(len))
     }
 }
@@ -1844,15 +1852,11 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a mut T> {
-        if self.tail == self.head {
+        if self.len == 0 {
             return None;
         }
-        self.head = wrap_index(self.head.wrapping_sub(1), self.ring.len());
-
-        unsafe {
-            let elem = self.ring.get_unchecked_mut(self.head);
-            Some(&mut *(elem as *mut _))
-        }
+        self.len -= 1;
+        unsafe { Some(self.ring.get_unchecked_mut(head(self.tail, self.len, self.ring.cap()))) }
     }
 }
 
@@ -1897,7 +1901,7 @@ impl<T> ExactSizeIterator for IntoIter<T> {}
 #[stable(feature = "drain", since = "1.6.0")]
 pub struct Drain<'a, T: 'a> {
     after_tail: usize,
-    after_head: usize,
+    after_len: usize,
     iter: Iter<'a, T>,
     deque: *mut VecDeque<T>,
 }
