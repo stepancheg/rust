@@ -46,7 +46,7 @@ use core::cmp;
 /// this type.
 pub struct RawVec<T> {
     ptr: Unique<T>,
-    cap: usize,
+    cap: usize, // field is ignored for ZST
 }
 
 impl<T> RawVec<T> {
@@ -56,27 +56,24 @@ impl<T> RawVec<T> {
     /// delayed allocation.
     pub fn new() -> Self {
         unsafe {
-            // !0 is usize::MAX. This branch should be stripped at compile time.
-            let cap = if mem::size_of::<T>() == 0 { !0 } else { 0 };
-
             // heap::EMPTY doubles as "unallocated" and "zero-sized allocation"
             RawVec {
                 ptr: Unique::new(heap::EMPTY as *mut T),
-                cap: cap,
+                cap: 0,
             }
         }
     }
 
     /// Creates a RawVec with exactly the capacity and alignment requirements
-    /// for a `[T; cap]`. This is equivalent to calling RawVec::new when `cap` is 0
-    /// or T is zero-sized. Note that if `T` is zero-sized this means you will *not*
-    /// get a RawVec with the requested capacity!
+    /// for a `[T; cap]`, except for zero-sized `T` for which RawVec is created with
+    /// `usize::MAX` capacity. This is equivalent to calling RawVec::new when `cap` is 0
+    /// or T is zero-sized.
     ///
     /// # Panics
     ///
     /// * Panics if the requested capacity exceeds `usize::MAX` bytes.
     /// * Panics on 32-bit platforms if the requested capacity exceeds
-    ///   `isize::MAX` bytes.
+    ///   `isize::MAX` bytes and `T` has non-zero size.
     ///
     /// # Aborts
     ///
@@ -84,6 +81,12 @@ impl<T> RawVec<T> {
     pub fn with_capacity(cap: usize) -> Self {
         unsafe {
             let elem_size = mem::size_of::<T>();
+
+            if elem_size == 0 {
+                // `cap` is ignored for ZST.
+                // It is initialized with `0`, and it could be `mem::uninitialized`.
+                return RawVec::new()
+            }
 
             let alloc_size = cap.checked_mul(elem_size).expect("capacity overflow");
             alloc_guard(alloc_size);
@@ -287,7 +290,7 @@ impl<T> RawVec<T> {
     ///
     /// * Panics if the requested capacity exceeds `usize::MAX` bytes.
     /// * Panics on 32-bit platforms if the requested capacity exceeds
-    ///   `isize::MAX` bytes.
+    ///   `isize::MAX` bytes and `T` has non-zero size.
     ///
     /// # Aborts
     ///
@@ -297,10 +300,12 @@ impl<T> RawVec<T> {
             let elem_size = mem::size_of::<T>();
             let align = mem::align_of::<T>();
 
-            // NOTE: we don't early branch on ZSTs here because we want this
-            // to actually catch "asking for more than usize::MAX" in that case.
-            // If we make it past the first branch then we are guaranteed to
-            // panic.
+            if elem_size == 0 {
+                // For ZST we just need to check that requested capacity
+                // does not overflow `usize::MAX`.
+                used_cap.checked_add(needed_extra_cap).expect("capacity overflow");
+                return;
+            }
 
             // Don't actually need any more capacity.
             // Wrapping in case they gave a bad `used_cap`.
@@ -364,7 +369,7 @@ impl<T> RawVec<T> {
     ///
     /// * Panics if the requested capacity exceeds `usize::MAX` bytes.
     /// * Panics on 32-bit platforms if the requested capacity exceeds
-    ///   `isize::MAX` bytes.
+    ///   `isize::MAX` bytes and `T` has non-zero size.
     ///
     /// # Aborts
     ///
@@ -397,10 +402,12 @@ impl<T> RawVec<T> {
             let elem_size = mem::size_of::<T>();
             let align = mem::align_of::<T>();
 
-            // NOTE: we don't early branch on ZSTs here because we want this
-            // to actually catch "asking for more than usize::MAX" in that case.
-            // If we make it past the first branch then we are guaranteed to
-            // panic.
+            if elem_size == 0 {
+                // For ZST we just need to check that requested capacity
+                // does not overflow `usize::MAX`.
+                used_cap.checked_add(needed_extra_cap).expect("capacity overflow");
+                return;
+            }
 
             // Don't actually need any more capacity.
             // Wrapping in case they give a bad `used_cap`
@@ -447,21 +454,23 @@ impl<T> RawVec<T> {
     ///
     /// * Panics if the requested capacity exceeds `usize::MAX` bytes.
     /// * Panics on 32-bit platforms if the requested capacity exceeds
-    ///   `isize::MAX` bytes.
+    ///   `isize::MAX` bytes and `T` has non-zero size.
     pub fn reserve_in_place(&mut self, used_cap: usize, needed_extra_cap: usize) -> bool {
         unsafe {
             let elem_size = mem::size_of::<T>();
             let align = mem::align_of::<T>();
 
-            // NOTE: we don't early branch on ZSTs here because we want this
-            // to actually catch "asking for more than usize::MAX" in that case.
-            // If we make it past the first branch then we are guaranteed to
-            // panic.
+            if elem_size == 0 {
+                // For ZST we just need to check that requested capacity
+                // does not overflow `usize::MAX`.
+                used_cap.checked_add(needed_extra_cap).expect("capacity overflow");
+                return false;
+            }
 
             // Don't actually need any more capacity. If the current `cap` is 0, we can't
             // reallocate in place.
             // Wrapping in case they give a bad `used_cap`
-            if self.cap().wrapping_sub(used_cap) >= needed_extra_cap || self.cap == 0 {
+            if self.cap.wrapping_sub(used_cap) >= needed_extra_cap || self.cap == 0 {
                 return false;
             }
 
@@ -496,7 +505,6 @@ impl<T> RawVec<T> {
 
         // Set the `cap` because they might be about to promote to a `Box<[T]>`
         if elem_size == 0 {
-            self.cap = amount;
             return;
         }
 
@@ -532,7 +540,7 @@ impl<T> RawVec<T> {
     /// that may have been performed. (see description of type for details)
     pub unsafe fn into_box(self) -> Box<[T]> {
         // NOTE: not calling `cap()` here, actually using the real `cap` field!
-        let slice = slice::from_raw_parts_mut(self.ptr(), self.cap);
+        let slice = slice::from_raw_parts_mut(self.ptr(), self.cap());
         let output: Box<[T]> = Box::from_raw(slice);
         mem::forget(self);
         output
@@ -610,4 +618,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn reserve_in_place_zst_false() {
+        let mut v: RawVec<()> = RawVec::with_capacity(100);
+        assert!(!v.reserve_in_place(10, 1000));
+    }
+
+    #[test]
+    #[should_panic]
+    fn reserve_in_place_zst_overflow() {
+        use core::usize;
+
+        let mut v: RawVec<()> = RawVec::with_capacity(100);
+        v.reserve_in_place(10, usize::MAX - 5);
+    }
 }
