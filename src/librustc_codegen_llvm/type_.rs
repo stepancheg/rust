@@ -80,6 +80,10 @@ impl CodegenCx<'ll, 'tcx> {
         }
     }
 
+    crate fn func_return_type(&self, ty: &'ll Type) -> &'ll Type {
+        unsafe { llvm::LLVMGetReturnType(ty) }
+    }
+
     crate fn type_bool(&self) -> &'ll Type {
         self.type_i8()
     }

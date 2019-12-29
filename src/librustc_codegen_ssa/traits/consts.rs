@@ -7,7 +7,14 @@ use syntax_pos::Symbol;
 
 pub trait ConstMethods<'tcx>: BackendTypes {
     // Constant constructors
+    /// Return a null pointer to a value of given type.
+    /// E. g. return `i32* null` where `t` is `i32`
     fn const_null(&self, t: Self::Type) -> Self::Value;
+    /// Return a null pointer of given type.
+    /// E. g. return `i32* null` where `t` is `i32*`.
+    fn const_pointer_null(&self, t: Self::Type) -> Self::Value;
+    /// Return a constant of given type where constant value is all zeros.
+    fn const_zeroinit(&self, t: Self::Type) -> Self::Value;
     fn const_undef(&self, t: Self::Type) -> Self::Value;
     fn const_int(&self, t: Self::Type, i: i64) -> Self::Value;
     fn const_uint(&self, t: Self::Type, i: u64) -> Self::Value;

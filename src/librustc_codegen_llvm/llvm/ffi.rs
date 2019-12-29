@@ -723,6 +723,7 @@ extern "C" {
     ) -> &'a Type;
     pub fn LLVMCountParamTypes(FunctionTy: &Type) -> c_uint;
     pub fn LLVMGetParamTypes(FunctionTy: &'a Type, Dest: *mut &'a Type);
+    pub fn LLVMGetReturnType(FunctionTy: &Type) -> &Type;
 
     // Operations on struct types
     pub fn LLVMStructTypeInContext(
@@ -754,6 +755,7 @@ extern "C" {
 
     // Operations on constants of any type
     pub fn LLVMConstNull(Ty: &Type) -> &Value;
+    pub fn LLVMConstPointerNull(Ty: &Type) -> &Value;
     pub fn LLVMGetUndef(Ty: &Type) -> &Value;
 
     // Operations on metadata

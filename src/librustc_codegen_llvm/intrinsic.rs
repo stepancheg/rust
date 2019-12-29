@@ -1,4 +1,4 @@
-use crate::abi::{Abi, FnAbi, LlvmType, PassMode};
+use crate::abi::{Abi, FnAbi, LlvmType, PassMode, FnAbiLlvmExt};
 use crate::builder::Builder;
 use crate::context::CodegenCx;
 use crate::llvm;
@@ -9,7 +9,7 @@ use crate::va_arg::emit_va_arg;
 use crate::value::Value;
 use rustc::hir;
 use rustc::ty::layout::{self, FnAbiExt, HasTyCtxt, LayoutOf, Primitive};
-use rustc::ty::{self, Ty};
+use rustc::ty::{self, Ty, TyCtxt};
 use rustc::{bug, span_bug};
 use rustc_codegen_ssa::base::{compare_simd_types, to_immediate, wants_msvc_seh};
 use rustc_codegen_ssa::common::{IntPredicate, TypeKind};
@@ -19,6 +19,7 @@ use rustc_codegen_ssa::mir::place::PlaceRef;
 use rustc_codegen_ssa::MemFlags;
 use rustc_target::abi::HasDataLayout;
 use syntax::ast;
+use rustc::ich::StableHashingContext;
 
 use rustc_codegen_ssa::common::span_invalid_monomorphization_error;
 use rustc_codegen_ssa::traits::*;
@@ -27,6 +28,7 @@ use syntax_pos::Span;
 
 use std::cmp::Ordering;
 use std::{i128, iter, u128};
+use rustc_data_structures::stable_hasher::{HashStable, StableHasher};
 
 fn get_simple_intrinsic(cx: &CodegenCx<'ll, '_>, name: &str) -> Option<&'ll Value> {
     let llvm_name = match name {
@@ -194,6 +196,9 @@ impl IntrinsicCallMethods<'tcx> for Builder<'a, 'll, 'tcx> {
                     .const_eval_instance(ty::ParamEnv::reveal_all(), instance, None)
                     .unwrap();
                 OperandRef::from_const(self, ty_name).immediate_or_packed_pair(self)
+            }
+            "alloc_static" => {
+                alloc_static_intrinsic(self, instance, fn_abi)
             }
             "init" => {
                 let ty = substs.type_at(0);
@@ -865,6 +870,39 @@ fn try_intrinsic(
     } else {
         codegen_gnu_try(bx, func, data, local_ptr, dest);
     }
+}
+
+fn hash<'tcx, T: HashStable<StableHashingContext<'tcx>>>(t: &T, tcx: TyCtxt<'tcx>) -> u64 {
+    let mut hcx = tcx.create_stable_hashing_context();
+    let mut hasher = StableHasher::new();
+
+    t.hash_stable(&mut hcx, &mut hasher);
+
+    hasher.finish()
+}
+
+fn alloc_static_intrinsic<'a, 'll, 'tcx>(
+    bx: &mut Builder<'a, 'll, 'tcx>,
+    instance: ty::Instance<'tcx>,
+    fn_abi: &FnAbi<'tcx, Ty<'tcx>>,
+) -> &'ll Value {
+    let llfnty = fn_abi.llvm_type(bx.cx);
+    let pointer_llty = bx.cx.func_return_type(llfnty);
+
+    let global_field_llty = bx.cx.element_type(pointer_llty);
+    let global_field_name = format!("alloc_static_{:x}", hash(&instance, bx.tcx));
+    let global_field = match bx.define_global(&global_field_name, global_field_llty) {
+        Some(cache) => {
+            unsafe {
+                llvm::LLVMRustSetLinkage(cache, llvm::Linkage::InternalLinkage);
+                llvm::LLVMSetInitializer(cache, bx.cx().const_zeroinit(global_field_llty));
+            };
+            cache
+        },
+        None => bx.get_defined_value(&global_field_name).expect("get_defined_value"),
+    };
+
+    global_field
 }
 
 // MSVC's definition of the `rust_try` function.

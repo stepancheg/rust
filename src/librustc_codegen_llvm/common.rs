@@ -3,7 +3,7 @@
 //! Code that is useful in various codegen modules.
 
 use crate::consts;
-use crate::llvm::{self, BasicBlock, Bool, ConstantInt, False, OperandBundleDef, True};
+use crate::llvm::{self, BasicBlock, Bool, ConstantInt, False, OperandBundleDef, True, TypeKind};
 use crate::type_::Type;
 use crate::type_of::LayoutLlvmExt;
 use crate::value::Value;
@@ -152,6 +152,21 @@ impl CodegenCx<'ll, 'tcx> {
 impl ConstMethods<'tcx> for CodegenCx<'ll, 'tcx> {
     fn const_null(&self, t: &'ll Type) -> &'ll Value {
         unsafe { llvm::LLVMConstNull(t) }
+    }
+
+    fn const_pointer_null(&self, t: &'ll Type) -> &'ll Value {
+        unsafe { llvm::LLVMConstPointerNull(t) }
+    }
+
+    fn const_zeroinit(&self, t: &'ll Type) -> &'ll Value {
+        // LLVM C API doesn't seem to expose `zeroinit` so emulate it.
+        unsafe {
+            match llvm::LLVMRustGetTypeKind(t) {
+                TypeKind::Integer => self.const_uint(t, 0),
+                TypeKind::Pointer => self.const_pointer_null(t),
+                k => bug!("zeroinit for type kind not implemented: {:?}", k),
+            }
+        }
     }
 
     fn const_undef(&self, t: &'ll Type) -> &'ll Value {

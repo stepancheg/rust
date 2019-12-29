@@ -64,12 +64,17 @@
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::{mem, ptr};
+use core::any::TypeId;
 
 use crate::sys_common::util::dumb_print;
+use crate::sys_common::mutex::Mutex;
+
+use crate::collections::HashMap;
 
 #[stable(feature = "alloc_module", since = "1.28.0")]
 #[doc(inline)]
 pub use alloc_crate::alloc::*;
+use core::cell::UnsafeCell;
 
 /// The default memory allocator provided by the operating system.
 ///
@@ -257,4 +262,45 @@ pub mod __default_lib_allocator {
         let layout = Layout::from_size_align_unchecked(size, align);
         System.alloc_zeroed(layout)
     }
+}
+
+struct StaticAllocs {
+    allocs: UnsafeCell<Option<HashMap<TypeId, *mut ()>>>,
+}
+
+unsafe impl Sync for StaticAllocs {}
+
+static STATIC_ALLOCS_MUTEX: Mutex = Mutex::new();
+static STATIC_ALLOCS_MAP: StaticAllocs = StaticAllocs { allocs: UnsafeCell::new(None) };
+
+#[allow(dead_code)]
+// This function is called once for each `(K, T, crate)` triple
+// so hint optimizer
+#[cold]
+unsafe fn alloc_static_impl(key: TypeId, layout: Layout) -> *mut () {
+    let _guard = STATIC_ALLOCS_MUTEX.lock();
+    let opt = &mut *STATIC_ALLOCS_MAP.allocs.get();
+    if opt.is_none() {
+        *opt = Some(HashMap::new());
+    }
+    let map = opt.as_mut().unwrap();
+    *map.entry(key).or_insert_with(|| { alloc_zeroed(layout) as *mut () })
+}
+
+/// Return a pointer to allocated memory of type `<T>`.
+///
+/// Returned pointer is unique for each pair of `K`, `T`.
+///
+/// Subsequent calls to this function returns the same pointer.
+/// Memory is initialized with zeros.
+#[cfg(not(bootstrap))]
+#[unstable(feature = "alloc_static", issue = "0")]
+// should be almost as fast as global variable access, so inline it
+#[inline(always)]
+pub unsafe fn alloc_static<K: 'static, T: 'static>() -> *mut T {
+    let ptr: *mut *mut T = ::core::intrinsics::alloc_static::<K, *mut T>();
+    if (*ptr).is_null() {
+        *ptr = alloc_static_impl(TypeId::of::<(K, T)>(), Layout::new::<T>()) as *mut T;
+    }
+    *ptr
 }

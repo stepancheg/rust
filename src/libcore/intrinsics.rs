@@ -982,6 +982,19 @@ extern "rust-intrinsic" {
     #[rustc_const_stable(feature = "const_needs_drop", since = "1.40.0")]
     pub fn needs_drop<T>() -> bool;
 
+    /// Return a pointer to a statically allocated memory of type `T`.
+    ///
+    /// Returned pointer is unique for each pair of `K` and `T`.
+    ///
+    /// When this function is called from different crates (including
+    /// when called implicitly because of monomorphization of the caller
+    /// in different crates), this function may return pointers to different
+    /// locations (each crate may get a unique pointer for each `K` and `T`).
+    ///
+    /// Memory area is initialized with zeros.
+    #[cfg(not(bootstrap))]
+    pub fn alloc_static<K: 'static, T: 'static>() -> *mut T;
+
     /// Calculates the offset from a pointer.
     ///
     /// This is implemented as an intrinsic to avoid converting to and from an

@@ -169,6 +169,8 @@ pub fn check_intrinsic_type(tcx: TyCtxt<'_>, it: &hir::ForeignItem<'_>) {
             "drop_in_place" => (1, vec![tcx.mk_mut_ptr(param(0))], tcx.mk_unit()),
             "needs_drop" => (1, Vec::new(), tcx.types.bool),
 
+            "alloc_static" => (2, Vec::new(), tcx.mk_ptr(ty::TypeAndMut { ty: param(1), mutbl: hir::Mutability::Mut })),
+
             "type_name" => (1, Vec::new(), tcx.mk_static_str()),
             "type_id" => (1, Vec::new(), tcx.types.u64),
             "offset" | "arith_offset" => (
